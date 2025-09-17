@@ -273,6 +273,22 @@ in {
           client.fail("attic cache info test")
           client.fail("curl -sL --fail-with-body http://server:8080/test/nix-cache-info")
 
+      with subtest("Check token revocation"):
+          # Setup
+          client.succeed("attic cache create revoke-test")
+          user_token = server.succeed("${cmd.atticadm} make-token --sub 'test-user' --validity '1 month' --push 'revoke-test' --pull 'revoke-test' </dev/null").strip()
+          client.succeed(f"attic login test-user http://server:8080 {user_token}")
+          client.succeed("${makeTestDerivation} revoke-test.nix")
+          revoke_test_file = client.succeed("nix-build --no-out-link revoke-test.nix").strip()
+          client.succeed(f"attic push test-user:revoke-test {revoke_test_file}")
+
+          # Revoke user and test
+          server.succeed("${cmd.atticadm} revoke-token --sub 'test-user'")
+          client.fail(f"attic push test-user:revoke-test {revoke_test_file}")
+
+          # Clean up
+          client.succeed("attic cache destroy --no-confirm revoke-test")
+
       ${databaseModules.${config.database}.testScriptPost or ""}
       ${storageModules.${config.storage}.testScriptPost or ""}
     '';
