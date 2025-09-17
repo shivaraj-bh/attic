@@ -23,6 +23,7 @@ use entity::chunk::{self, ChunkModel, ChunkState, Entity as Chunk};
 use entity::chunkref;
 use entity::nar::{self, Entity as Nar, NarModel, NarState};
 use entity::object::{self, Entity as Object, ObjectModel};
+use entity::revoked_token::{self, Entity as RevokedToken};
 
 // quintuple join time
 const SELECT_OBJECT: &str = "O_";
@@ -57,6 +58,9 @@ pub trait AtticDatabase: Send + Sync {
 
     /// Bumps the last accessed timestamp of an object.
     async fn bump_object_last_accessed(&self, object_id: i64) -> ServerResult<()>;
+
+    /// Checks if a user (subject) is revoked.
+    async fn is_user_revoked(&self, subject: &str) -> ServerResult<bool>;
 }
 
 pub struct NarGuard {
@@ -318,6 +322,16 @@ impl AtticDatabase for DatabaseConnection {
         .map_err(ServerError::database_error)?;
 
         Ok(())
+    }
+
+    async fn is_user_revoked(&self, subject: &str) -> ServerResult<bool> {
+        let revoked_entry = RevokedToken::find()
+            .filter(revoked_token::Column::Subject.eq(subject))
+            .one(self)
+            .await
+            .map_err(ServerError::database_error)?;
+
+        Ok(revoked_entry.is_some())
     }
 }
 
