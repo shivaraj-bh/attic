@@ -288,7 +288,7 @@ in {
           # Delete the file locally and test pull before revocation (should succeed)
           client.succeed(f"nix-store --delete {revoke_test_file}")
           client.fail(f"ls {revoke_test_file}")
-          client.succeed(f"attic use test-user:revoke-test")
+          client.succeed("attic use test-user:revoke-test")
           client.succeed(f"nix-store -r {revoke_test_file}")
           client.succeed(f"ls {revoke_test_file}")
 
