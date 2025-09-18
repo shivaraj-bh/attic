@@ -44,7 +44,26 @@ impl AuthState {
         F: FnOnce(CacheModel, &mut CachePermission) -> ServerResult<T>,
     {
         let mut permission = if let Some(token) = self.token.get() {
-            token.get_permission_for_cache(cache_name)
+            // Check if the user is revoked before proceeding
+            if let Some(subject) = token.sub() {
+                match database.is_user_revoked(subject).await {
+                    Ok(true) => {
+                        tracing::debug!("User '{}' tokens are revoked", subject);
+                        CachePermission::default()
+                    }
+                    Ok(false) => {
+                        // User is not revoked, proceed with normal permissions
+                        token.get_permission_for_cache(cache_name)
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to check user revocation status: {}", e);
+                        CachePermission::default()
+                    }
+                }
+            } else {
+                tracing::warn!("Failed to check user revocation status: Token has no subject");
+                CachePermission::default()
+            }
         } else {
             CachePermission::default()
         };
@@ -118,32 +137,9 @@ pub async fn apply_auth(req: Request, next: Next) -> Response {
         });
 
     if let Some(token) = token {
-        // Check if the user (subject) is revoked
-        let state = req.extensions().get::<State>().unwrap();
-
-        let Some(database) = state.database.get() else {
-            tracing::warn!("Failed to check user revocation status: Database not initialized");
-            return next.run(req).await;
-        };
-
-        let Some(subject) = token.sub().map(|s| s.to_string()) else {
-            tracing::warn!("Failed to check user revocation status: Token missing subject");
-            return next.run(req).await;
-        };
-
-        match database.is_user_revoked(&subject).await {
-            Ok(true) => {
-                tracing::debug!("User '{}' tokens are revoked", subject);
-            }
-            Ok(false) => {
-                let req_state = req.extensions().get::<RequestState>().unwrap();
-                req_state.auth.token.set(token).unwrap();
-                tracing::trace!("Added valid token for user '{}'", subject);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to check user revocation status: {}", e);
-            }
-        }
+        let req_state = req.extensions().get::<RequestState>().unwrap();
+        req_state.auth.token.set(token).unwrap();
+        tracing::trace!("Added valid token");
     }
 
     next.run(req).await
