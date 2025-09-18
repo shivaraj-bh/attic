@@ -281,11 +281,27 @@ in {
           client.succeed(f"attic login test-user http://server:8080 {user_token}")
           client.succeed("${makeTestDerivation} revoke-test.nix")
           revoke_test_file = client.succeed("nix-build --no-out-link revoke-test.nix").strip()
+          
+          # Test push before revocation (should succeed)
           client.succeed(f"attic push test-user:revoke-test {revoke_test_file}")
+          
+          # Delete the file locally and test pull before revocation (should succeed)
+          client.succeed(f"nix-store --delete {revoke_test_file}")
+          client.fail(f"ls {revoke_test_file}")
+          client.succeed(f"attic use test-user:revoke-test")
+          client.succeed(f"nix-store -r {revoke_test_file}")
+          client.succeed(f"ls {revoke_test_file}")
 
-          # Revoke user and test
+          # Revoke user and test both push and pull operations
           server.succeed("${cmd.atticadm} revoke-token --sub 'test-user'")
+          
+          # Test push after revocation (should fail)
           client.fail(f"attic push test-user:revoke-test {revoke_test_file}")
+          
+          # Delete the file locally and test pull after revocation (should fail)
+          client.succeed(f"nix-store --delete {revoke_test_file}")
+          client.fail(f"ls {revoke_test_file}")
+          client.fail(f"nix-store -r {revoke_test_file}")
 
           # Clean up
           client.succeed("attic cache destroy --no-confirm revoke-test")
